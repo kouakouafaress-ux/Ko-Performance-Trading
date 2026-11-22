@@ -224,6 +224,9 @@
   .sync-dot.on{background:var(--green)}.sync-dot.err{background:var(--red)}
   #zoomLB .zl-media.rot{position:fixed;top:50%;left:50%;width:calc(100vh - 120px)!important;max-width:none!important;max-height:none!important;transform:translate(-50%,-50%) rotate(90deg)}
   .jsub{grid-column:1/-1;margin-top:8px;padding:7px 10px;border-radius:8px;background:rgba(197,134,255,.1);border-left:3px solid #c586ff;color:#c586ff;font-weight:800;font-size:13px}
+  .edittrade{cursor:pointer;border:none;background:none;font-size:14px;padding:2px 4px}
+  .tbl-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch;max-width:100%}
+  #jList .panel{overflow:hidden}
 </style>
 </head>
 <body>
@@ -841,7 +844,7 @@
           <option>Asia Range Break</option>
           <option>BOS / CHoCH</option>
           <option>Order Block</option>
-          <option>Fair Value Gap</option>
+          <option>Fair Value Gap</option><option>Volume Profile</option><option>VP Rejection (VAH/VAL)</option><option>VP Acceptance (Ausbruch)</option><option>VP POC-Magnet</option>
           <option>Liquidity Grab</option>
           <option>Pin Bar</option>
           <option>Engulfing</option>
@@ -892,7 +895,7 @@
     </div>
     <div class="small" style="margin-top:6px">💡 TradingView-Snapshot (Kamera → „Bild-URL kopieren", ergibt /x/…) wird in der Trade-Liste als Chart-Bild eingebettet.</div>
     <div class="jbtns">
-      <button class="btn green" id="jAdd">+ Trade hinzufügen</button>
+      <div id="jEditInfo" class="small" style="display:none;width:100%;color:var(--gold);font-weight:700"></div><button class="btn green" id="jAdd">+ Trade hinzufügen</button><button class="btn" id="jEditCancel" style="display:none">Abbrechen</button>
       <button class="btn gold" id="jExport">⬇ Export (CSV)</button>
       <button class="btn" id="jImport">⬆ Import (CSV)</button>
       <button class="btn red" id="jClear">Alle löschen</button>
@@ -1065,6 +1068,11 @@ setInterval(updateClock,1000); updateClock();
    ============================================================ */
 let trades   = JSON.parse(localStorage.getItem('tc_trades')   || '[]');
 let cfg      = JSON.parse(localStorage.getItem('tc_cfg')      || '{"name":"Faress","capital":1000,"currency":"$","maxrisk":5,"target":8,"dayLimit":5,"weekLimit":10,"maxTrades":2,"monthTarget":2000}');
+if(!localStorage.getItem('tc_fix_20261121')){
+  let n=0;trades.forEach(t=>{if(t.date==='2026-11-21'){t.date='2026-11-20';n++;}});
+  if(n)localStorage.setItem('tc_trades',JSON.stringify(trades));
+  localStorage.setItem('tc_fix_20261121','1');
+}
 // Defaults für neue Wächter-Felder bei alten Configs nachziehen
 if(cfg.dayLimit==null)cfg.dayLimit=5;
 if(cfg.weekLimit==null)cfg.weekLimit=10;
@@ -1296,13 +1304,34 @@ function hydrateShots(root){
 /* ============================================================
    TRADING JOURNAL  (Felder: date,pair,dir,setup,session,entry,sl,tp,lot,pnl,rmult,emotion,result,tags,note)
    ============================================================ */
+let editId=null;
+const J_FIELDS={jDate:'date',jPair:'pair',jDir:'dir',jSetup:'setup',jSession:'session',jBias:'bias',jEntry:'entry',jSL:'sl',jTP:'tp',jLot:'lot',jPnl:'pnl',jRmult:'rmult',jEmotion:'emotion',jResult:'result',jTags:'tags',jNote:'note',jReason:'reason',jReview:'review',jChart:'chart',jPOC:'poc',jVAH:'vah',jVAL:'val',jVPReact:'vpreact'};
+function startEdit(id){
+  const t=trades.find(x=>String(x.id)===String(id));if(!t)return;
+  editId=t.id;
+  Object.entries(J_FIELDS).forEach(([el,k])=>{const e=document.getElementById(el);if(!e)return;const v=t[k]==null?'':String(t[k]);
+    if(e.tagName==='SELECT'&&v&&![...e.options].some(o=>o.value===v)){const o=document.createElement('option');o.textContent=v;o.value=v;e.appendChild(o);}
+    e.value=v;});
+  document.getElementById('jAdd').textContent='💾 Änderungen speichern';
+  document.getElementById('jEditCancel').style.display='';
+  document.getElementById('jEditInfo').style.display='';
+  document.getElementById('jEditInfo').textContent='✏️ Du bearbeitest den Trade vom '+(t.date||'').split('-').reverse().join('.')+' ('+(t.pair||'')+'). Neue Screenshots werden ergänzt.';
+  document.getElementById('jDate').closest('.panel').scrollIntoView({behavior:'smooth',block:'start'});
+}
+function endEdit(){
+  editId=null;
+  document.getElementById('jAdd').textContent='+ Trade hinzufügen';
+  document.getElementById('jEditCancel').style.display='none';
+  document.getElementById('jEditInfo').style.display='none';
+  ['jEntry','jSL','jTP','jLot','jPnl','jRmult','jTags','jNote','jReason','jReview','jChart','jPOC','jVAH','jVAL','jVPReact'].forEach(id=>{const e=document.getElementById(id);if(e)e.value='';});
+}
 const jDateEl=document.getElementById('jDate');
 if(jDateEl) jDateEl.valueAsDate=new Date();
 
 document.getElementById('jAdd').onclick=()=>{
   // 🛡️ Disziplin-Wächter: vor dem Eintragen prüfen
   const dToday=document.getElementById('jDate').value;
-  if(dToday){
+  if(dToday&&!editId){
     const cap=num(cfg.capital)||1000;
     const nT=tradesForDay(dToday);
     const dPnl=pnlForDay(dToday);
@@ -1342,7 +1371,8 @@ document.getElementById('jAdd').onclick=()=>{
     shots:  pendingShots.map(s=>s.id)
   };
   if(!t.date){alert('Bitte Datum eingeben');return;}
-  trades.push(t); saveAll(); pendingShots.forEach(s=>URL.revokeObjectURL(s.url)); pendingShots=[]; renderPendingShots(); renderJournal();
+  if(editId){const o=trades.find(x=>x.id===editId);if(o){t.id=o.id;t.shots=[...(o.shots||[]),...(t.shots||[])];Object.assign(o,t);}endEdit();}else trades.push(t);
+  saveAll(); if(typeof renderDashboard==='function')renderDashboard(); if(typeof renderMonat==='function')renderMonat(); pendingShots.forEach(s=>URL.revokeObjectURL(s.url)); pendingShots=[]; renderPendingShots(); renderJournal();
   // Felder leeren (Datum bleibt)
   ['jEntry','jSL','jTP','jLot','jPnl','jRmult','jTags','jNote','jReason','jReview','jChart','jPOC','jVAH','jVAL'].forEach(id=>document.getElementById(id).value='');
   document.getElementById('jVPReact').value='';
@@ -1352,6 +1382,7 @@ document.getElementById('jClear').onclick=()=>{
   if(confirm('Wirklich ALLE Trades löschen? Vorher exportieren!')){trades=[];saveAll();renderJournal();renderDashboard();}
 };
 
+document.addEventListener('click',e=>{if(e.target&&e.target.id==='jEditCancel')endEdit();});
 function renderJournal(){
   // KPIs
   const wins=trades.filter(t=>t.result==='WIN').length;
@@ -1392,7 +1423,7 @@ function renderJournal(){
         <td>${t.emotion||''}</td>
         <td style="font-size:11px;color:#c586ff;white-space:nowrap">${t.poc?'POC '+esc(t.poc):''}${t.vpreact?'<br><span style="color:var(--muted)">'+esc(t.vpreact.split(' (')[0])+'</span>':''}</td>
         <td class="${cls}">${esc(t.result)}</td>
-        <td><button class="deltrade" data-id="${t.id}">✕</button></td>
+        <td style="white-space:nowrap"><button class="edittrade" data-id="${t.id}" title="Bearbeiten">✏️</button><button class="deltrade" data-id="${t.id}" title="Löschen">✕</button></td>
       </tr>`;
       if(t.note||t.tags){
         let extra=[];
@@ -1423,6 +1454,7 @@ function renderJournal(){
     });
     rows+='</table></div>';panel.innerHTML=rows;list.appendChild(panel);hydrateShots(panel);
   });
+  document.querySelectorAll('.edittrade').forEach(b=>b.onclick=()=>startEdit(b.dataset.id));
   document.querySelectorAll('.deltrade').forEach(b=>{
     b.onclick=()=>{const tr=trades.find(t=>t.id==b.dataset.id);if(tr&&tr.shots)tr.shots.forEach(id=>ShotDB.del(id));trades=trades.filter(t=>t.id!=b.dataset.id);saveAll();renderJournal();renderDashboard();};
   });
