@@ -223,6 +223,7 @@
   .sync-dot{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:6px;background:var(--muted)}
   .sync-dot.on{background:var(--green)}.sync-dot.err{background:var(--red)}
   #zoomLB .zl-media.rot{position:fixed;top:50%;left:50%;width:calc(100vh - 120px)!important;max-width:none!important;max-height:none!important;transform:translate(-50%,-50%) rotate(90deg)}
+  .jsub{grid-column:1/-1;margin-top:8px;padding:7px 10px;border-radius:8px;background:rgba(197,134,255,.1);border-left:3px solid #c586ff;color:#c586ff;font-weight:800;font-size:13px}
 </style>
 </head>
 <body>
@@ -881,7 +882,7 @@
       <input type="file" id="jShotFile" accept="image/*" multiple hidden>
       <div class="shot-prev" id="jShotPrev"></div>
       <div style="grid-column:1/-1"><label>Chart-Screenshot URL (TradingView, optional)</label><input type="text" id="jChart" placeholder="https://www.tradingview.com/x/ABC123/"></div>
-      <!-- Volume-Profile-Felder (Vortag) -->
+      <div class="jsub">📊 Volume Profile (Vortag)</div>
       <div><label>POC (Point of Control)</label><input type="text" id="jPOC" placeholder="z.B. 4502.5"></div>
       <div><label>VAH (Value Area High)</label><input type="text" id="jVAH" placeholder="z.B. 4515.0"></div>
       <div><label>VAL (Value Area Low)</label><input type="text" id="jVAL" placeholder="z.B. 4488.0"></div>
@@ -917,7 +918,7 @@
   </div>
   <div class="panel" id="mtSummary"></div>
   <div class="tbl-wrap"><table id="mtTable"></table></div>
-  <p class="small">Status: ✅ Tagesziel erreicht · 🟡 Profit unter Ziel · ❌ Verlusttag · ⛔ Tageslimit gerissen · — kein Trade. Tagesziel = Monatsziel ÷ Arbeitstage (Mo–Fr).</p>
+  <p class="small">Status: ✅ Tagesziel erreicht · 🟡 Profit unter Ziel · ❌ Verlusttag · ⛔ Tageslimit gerissen · — kein Trade. Tagesziel = Monatsziel ÷ Arbeitstage (Mo–Fr). Trades am Wochenende werden mit (Sa)/(So) angezeigt und mitgezählt.</p>
 </section>
 
 <section id="road">
@@ -1168,9 +1169,10 @@ function renderMonat(){
   let cum=0,sumP=0,sumL=0,nTradesTotal=0,winDays=0,lossDays=0,targetDays=0;
   for(let d=1;d<=daysInM;d++){
     const wd=new Date(y,mIdx,d).getDay();
-    if(wd===0||wd===6)continue; // nur Arbeitstage wie im Excel
     const ds=`${y}-${String(m).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
     const dayTrades=trades.filter(t=>t.date===ds);
+    const isWE=wd===0||wd===6;
+    if(isWE&&!dayTrades.length)continue; // Wochenende nur zeigen, wenn dort Trades eingetragen sind
     const profit=dayTrades.reduce((s,t)=>{const p=num(t.pnl);return s+(p>0?p:0);},0);
     const loss=dayTrades.reduce((s,t)=>{const p=num(t.pnl);return s+(p<0?p:0);},0);
     const net=profit+loss;
@@ -1187,8 +1189,8 @@ function renderMonat(){
     const notes=dayTrades.map(t=>t.note).filter(Boolean).join(' · ').slice(0,70);
     rows+=`<tr>
       <td>${d}</td>
-      <td>${String(d).padStart(2,'0')}.${String(m).padStart(2,'0')}.</td>
-      <td class="small">${dailyTarget.toLocaleString('de-DE',{maximumFractionDigits:0})} ${cur}</td>
+      <td>${String(d).padStart(2,'0')}.${String(m).padStart(2,'0')}.${isWE?' <span class="small" style="color:var(--amber)">('+(wd===6?'Sa':'So')+')</span>':''}</td>
+      <td class="small">${isWE?'—':dailyTarget.toLocaleString('de-DE',{maximumFractionDigits:0})+' '+cur}</td>
       <td>${dayTrades.length||''}</td>
       <td class="win">${profit?'+'+profit.toLocaleString('de-DE',{maximumFractionDigits:2}):''}</td>
       <td class="loss">${loss?loss.toLocaleString('de-DE',{maximumFractionDigits:2}):''}</td>
@@ -1377,7 +1379,7 @@ function renderJournal(){
     h.innerHTML=`${label} <span class="small" style="float:right">${groups[m].length} Trades · ${fmt(mp)} · ${fmt(mr)}R</span>`;
     list.appendChild(h);
     const panel=document.createElement('div');panel.className='panel';panel.style.padding='6px 10px';
-    let rows='<div class="tbl-wrap"><table><tr><th>Datum</th><th>Paar</th><th>Setup</th><th>Sess</th><th>Bias</th><th>Dir</th><th>Entry</th><th>SL</th><th>TP</th><th>Lot</th><th>R</th><th>P&L</th><th>Emo</th><th>Erg.</th><th></th></tr>';
+    let rows='<div class="tbl-wrap"><table><tr><th>Datum</th><th>Paar</th><th>Setup</th><th>Sess</th><th>Bias</th><th>Dir</th><th>Entry</th><th>SL</th><th>TP</th><th>Lot</th><th>R</th><th>P&L</th><th>Emo</th><th>VP</th><th>Erg.</th><th></th></tr>';
     groups[m].forEach(t=>{
       const cls=t.result==='WIN'?'win':t.result==='LOSS'?'loss':'';
       rows+=`<tr>
@@ -1388,6 +1390,7 @@ function renderJournal(){
         <td class="${cls}">${t.rmult?fmt(num(t.rmult))+'R':''}</td>
         <td class="${cls}">${t.pnl?fmt(num(t.pnl)):''}</td>
         <td>${t.emotion||''}</td>
+        <td style="font-size:11px;color:#c586ff;white-space:nowrap">${t.poc?'POC '+esc(t.poc):''}${t.vpreact?'<br><span style="color:var(--muted)">'+esc(t.vpreact.split(' (')[0])+'</span>':''}</td>
         <td class="${cls}">${esc(t.result)}</td>
         <td><button class="deltrade" data-id="${t.id}">✕</button></td>
       </tr>`;
@@ -1395,7 +1398,7 @@ function renderJournal(){
         let extra=[];
         if(t.tags)extra.push('🏷️ '+esc(t.tags));
         if(t.note)extra.push('📝 '+esc(t.note));
-        rows+=`<tr><td colspan="15" class="small" style="padding-top:0;color:var(--muted)">${extra.join(' &nbsp;·&nbsp; ')}</td></tr>`;
+        rows+=`<tr><td colspan="16" class="small" style="padding-top:0;color:var(--muted)">${extra.join(' &nbsp;·&nbsp; ')}</td></tr>`;
       }
       // Trade-Analyse (Begründung, Nachbesprechung, Chart) ausklappbar
       if(t.reason||t.review||t.chart||t.poc||t.vah||t.val||t.vpreact||(t.shots&&t.shots.length)){
@@ -1415,7 +1418,7 @@ function renderJournal(){
         if(t.shots&&t.shots.length)an+=`<div style="margin-bottom:8px"><b style="color:var(--gold);font-size:11px">📷 SCREENSHOTS (${t.shots.length})</b><div class="jshots" data-ids="${t.shots.map(esc).join(',')}"></div></div>`;
         if(t.chart)an+=`<div>${tvEmbed(t.chart)}<div class="rlink" style="margin-top:4px">${esc(t.chart)}</div></div>`;
         an+='</div></details>';
-        rows+=`<tr><td colspan="15" style="padding-top:0">${an}</td></tr>`;
+        rows+=`<tr><td colspan="16" style="padding-top:0">${an}</td></tr>`;
       }
     });
     rows+='</table></div>';panel.innerHTML=rows;list.appendChild(panel);hydrateShots(panel);
@@ -2228,7 +2231,7 @@ const Sync=(()=>{
     }catch(e){status('Sync-Fehler: '+(e.message||e),false);}
     busy=false;
   }
-  function refresh(){try{if(typeof loadConfig==='function')loadConfig();if(typeof renderDashboard==='function')renderDashboard();if(typeof renderJournal==='function')renderJournal();}catch(e){console.warn(e);}}
+  function refresh(){try{if(typeof loadConfig==='function')loadConfig();if(typeof renderDashboard==='function')renderDashboard();if(typeof renderJournal==='function')renderJournal();if(typeof renderMonat==='function')renderMonat();}catch(e){console.warn(e);}}
   // Screenshots
   const path=id=>user.id+'/'+id+'.jpg';
   async function uploadShot(id){
